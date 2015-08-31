@@ -172,7 +172,7 @@ sub urlHandler {
 	#because search replaces '.' by ' '
 	$url =~ s/ /./g;
 	
-	$log->debug("urlHandler: $args->{'search'}");
+	_debug('urlHandler',$url);
 	# use metadata handler to get track info
 	Plugins::YouTube::ProtocolHandler->getMetadataFor(undef, $url, undef, undef,
 		sub {
@@ -209,7 +209,7 @@ sub recentHandler {
 			type => 'audio',
 		};
 	}
-
+	_debug('recentHandler','queryUrl',$args);
 	$callback->({ items => \@menu });
 }
 
@@ -229,8 +229,8 @@ sub searchHandler {
 	$search = URI::Escape::uri_escape_utf8($search);
 	$search = "q=$search";
 	
-	$log->debug("search: $feed", ":", $parser, ":", $term, ":", Dumper($args));
-		
+	##_debug("search: $feed", ":", $parser, ":", $term, ":", Dumper($args));
+	
 	#FIXME. why does LMS re-request the index with a quantity of 1 ???
 	if ($quantity == 1 && $index != 0) {
 		$one = 'true';
@@ -280,8 +280,8 @@ sub searchHandler {
 			
 		}
 
-		$log->info("fetching: $queryUrl");
-		_debug('queryUrl',$feed,$queryUrl);
+		_debug("fetching: ",$queryUrl);
+		
 		
 		Slim::Networking::SimpleAsyncHTTP->new(
 
@@ -366,9 +366,15 @@ sub _parseVideosV2 {
 
 sub _parseVideos {
 	my ($json, $menu) = @_;
+	
+	
+	
 	for my $entry (@{$json->{'items'} || []}) {
 		my $mg = $entry->{'snippet'};
-		my $vurl = "www.youtube.com/v/$entry->{id}->{videoId}";
+		my $vid = $entry->{id}->{videoId};
+		
+		
+		my $vurl = "www.youtube.com/v/$vid";
 		#$log->debug("parse video (url: $vurl) ==> " , Dumper($entry));
 		push @$menu, {
 			name => $mg->{'title'},
@@ -380,30 +386,35 @@ sub _parseVideos {
 			icon => $mg->{'thumbnails'}->{'default'}->{'url'},
 		};
 	}
+	
+	###_debug("_parseVideos",$menu);
 }
 
 sub _debug{
-	$log->debug(Dumper([caller,@_]));
+	$log->debug(Dumper([@_]));
+	###print STDERR Dumper([@_]);
 }
 
 sub _parseChannels {
 	my ($json, $menu) = @_;
-		
+	
+	
 	for my $entry (@{$json->{'items'} || []}) {
-		my $title = $entry->{'snippet'}->{'title'} || $entry->{'snippet'}->{'description'} || 'No Title';
+		my $mg = $entry->{'snippet'};
+		my $vid = $mg->{channelId};
+		my $title = $mg->{title};
 		$title = Slim::Formats::XML::unescapeAndTrim($title);
-		my $id=$entry->{id}->{channelId};
-		#$log->debug("parse channel (id: $id) ==>", Dumper($entry));
-		$log->debug("parse channel (id: $id) ==>");
+		my $url = $prefs->get('APIurl') . "/channels?part=snippet&id=$vid&key=" . $prefs->get('APIkey');
+		
 		push @$menu, {
 			name => $title,
 			type => 'link',
 			url  => \&searchHandler,
-			passthrough => [ $prefs->get('APIurl') . "/search/?part=snippet&channelId=$id&key=" . $prefs->get('APIkey'), \&_parseVideos ],
+			passthrough => [ $url, \&_parseVideos ],
 		};
 	}
 	
-	###_debug('_parseChannels results',$menu);
+	_debug('_parseChannels results',$menu);
 }
 sub _parseChannelsV2 {
 	my ($json, $menu) = @_;
@@ -424,8 +435,25 @@ sub _parseChannelsV2 {
 
 sub _parsePlaylists {
 	my ($json, $menu) = @_;	
-	## for my laziness
-	return _parseChannels($json, $menu);
+	for my $entry (@{$json->{'items'} || []}) {
+		my $mg = $entry->{'snippet'};
+		my $vid = $entry->{id}->{playlistId};
+		my $title = $mg->{title};
+		$title = Slim::Formats::XML::unescapeAndTrim($title);
+		my $url = $prefs->get('APIurl') . "/playlistItems?part=snippet&playlistId=$vid&key=" . $prefs->get('APIkey');
+		
+		push @$menu, {
+			name => $title,
+			type => 'link',
+			url  => \&searchHandler,
+			passthrough => [ $url, \&_parseVideos ],
+		};
+	}
+}
+
+
+sub _parsePlaylistsV2 {
+	my ($json, $menu) = @_;	
 	
 	
 	for my $entry (@{$json->{'entry'} || []}) {
@@ -494,8 +522,8 @@ sub webVideoLink {
 	my ($client, $url) = @_;
 
 	
-
-#	_debug('webVideoLink',$url);
+	
+	_debug('webVideoLink',$url);
 
 	
 	if (my $id = Plugins::YouTube::ProtocolHandler->_id($url)) {
@@ -543,7 +571,8 @@ sub searchInfoMenu {
 	my $query = $tags->{'search'};
 
 	$query = URI::Escape::uri_escape_utf8($query);
-
+	_debug(caller,$query);
+	
 	return {
 		name => string('PLUGIN_YOUTUBE'),
 		items => [
